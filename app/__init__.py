@@ -1,0 +1,1 @@
+"""CodeAdventure API application package."""

@@ -80,3 +80,18 @@ Ranking, modo professor, graficos/analitica avancada, sons e animacoes adicionai
 - Nao devolver nem registar credenciais em texto simples.
 - Cobrir regras de autenticacao, desbloqueio e recompensas com testes.
 - Tornar erros operacionais explicitos, sem respostas de sucesso falsas.
+
+## Desenvolvimento local
+
+Requer Python 3.11 ou superior. Na pasta deste repositorio, criar um ambiente virtual, instalar as dependencias e iniciar a API:
+
+```bash
+python -m venv .venv
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+uvicorn app.main:app --reload
+```
+
+A verificacao de disponibilidade da API fica em `/api/v1/health`; a documentacao interativa gerada pelo FastAPI fica em `/docs`. A base SQLite e criada em `data/codeadventure.db` na primeira inicializacao. Para desenvolvimento/testes, `CODEADVENTURE_DB_PATH` permite escolher outro caminho. Executar os testes com `python -m pytest`.
+
+Esta primeira fundacao inclui apenas a aplicacao, a inicializacao versionada da base de dados e o endpoint de disponibilidade. Autenticacao, tabelas de dominio e funcionalidades de progresso ficam para os incrementos seguintes.
