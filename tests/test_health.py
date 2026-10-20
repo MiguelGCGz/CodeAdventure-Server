@@ -11,6 +11,7 @@ def test_health_check_initializes_database_and_returns_status(
 ) -> None:
     database_path = tmp_path / "codeadventure.db"
     monkeypatch.setenv("CODEADVENTURE_DB_PATH", str(database_path))
+    monkeypatch.setenv("CODEADVENTURE_SECRET_KEY", "test-secret-key-" * 3)
 
     async def request_health() -> httpx.Response:
         async with app.router.lifespan_context(app):
@@ -30,4 +31,4 @@ def test_health_check_initializes_database_and_returns_status(
     }
     with sqlite3.connect(database_path) as connection:
         versions = connection.execute("SELECT version FROM schema_version").fetchall()
-    assert versions == [(1,)]
+    assert versions == [(1,), (2,)]

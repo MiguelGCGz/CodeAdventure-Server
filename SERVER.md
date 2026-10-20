@@ -89,9 +89,12 @@ Requer Python 3.11 ou superior. Na pasta deste repositorio, criar um ambiente vi
 python -m venv .venv
 # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
+$env:CODEADVENTURE_SECRET_KEY = python -c "import secrets; print(secrets.token_urlsafe(48))"
 uvicorn app.main:app --reload
 ```
 
 A verificacao de disponibilidade da API fica em `/api/v1/health`; a documentacao interativa gerada pelo FastAPI fica em `/docs`. A base SQLite e criada em `data/codeadventure.db` na primeira inicializacao. Para desenvolvimento/testes, `CODEADVENTURE_DB_PATH` permite escolher outro caminho. Executar os testes com `python -m pytest`.
 
-Esta primeira fundacao inclui apenas a aplicacao, a inicializacao versionada da base de dados e o endpoint de disponibilidade. Autenticacao, tabelas de dominio e funcionalidades de progresso ficam para os incrementos seguintes.
+O registo e login ficam disponiveis em `/api/v1/auth/register` e `/api/v1/auth/login`; ambos devolvem um token Bearer de curta duracao. O perfil protegido fica em `/api/v1/users/me`. Os nomes de utilizador aceitam 3–32 letras ASCII, numeros, `_` ou `-` e sao unicos sem distinguir maiusculas de minusculas. As palavras-passe aceitam 8–128 caracteres e sao guardadas com hash Argon2. Configurar `CODEADVENTURE_SECRET_KEY` com um segredo aleatorio de pelo menos 32 caracteres antes de iniciar a API. `CODEADVENTURE_CORS_ORIGINS` aceita uma lista separada por virgulas; por omissao, permite apenas os enderecos de desenvolvimento Vite locais.
+
+Esta etapa acrescenta autenticacao e perfil; o catalogo de mundos e o registo de progresso ficam para os incrementos seguintes.

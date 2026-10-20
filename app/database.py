@@ -38,3 +38,16 @@ def initialize_database() -> None:
         connection.execute(
             "INSERT OR IGNORE INTO schema_version (version) VALUES (1)"
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (2)"
+        )
