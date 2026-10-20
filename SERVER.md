@@ -41,7 +41,16 @@ Os recursos da API devem cobrir, pelo menos:
 - submissao/atualizacao do resultado de um desafio;
 - consulta de conquistas e pontuacao do utilizador.
 
-Os caminhos, formatos de token/sessao, codigos HTTP e esquemas concretos serao definidos durante a implementacao da fundacao, antes de ligar o Client. O contrato deve ser documentado e mantido consistente entre os dois repositorios.
+Os endpoints e formatos implementados abaixo formam o contrato atual entre os dois repositorios; os recursos adicionais serao definidos quando forem implementados.
+
+### Endpoints implementados
+
+- `GET /` apresenta informacao da API, ligacao a `/docs` e verificacao de disponibilidade.
+- `GET /favicon.ico` responde sem erro quando o navegador pede o favicon.
+- `GET /api/v1/worlds` devolve o catalogo publico de mundos e desafios introdutorios.
+- `GET /api/v1/users/me/dashboard` requer Bearer token e devolve XP, desafios concluidos, percentagem e estado/desbloqueio de cada mundo.
+
+O catalogo inicial tem seis mundos e um desafio introdutorio em cada. Um mundo so e desbloqueado depois de todos os desafios do mundo anterior serem concluidos. O progresso e guardado por utilizador na tabela `level_progress`; nesta etapa, os resultados ainda nao sao submetidos pela API, pelo que as contas novas comecam com 0 XP e apenas o primeiro mundo disponivel.
 
 ## Conteudo pedagogico
 
@@ -93,8 +102,8 @@ $env:CODEADVENTURE_SECRET_KEY = python -c "import secrets; print(secrets.token_u
 uvicorn app.main:app --reload
 ```
 
-A verificacao de disponibilidade da API fica em `/api/v1/health`; a documentacao interativa gerada pelo FastAPI fica em `/docs`. A base SQLite e criada em `data/codeadventure.db` na primeira inicializacao. Para desenvolvimento/testes, `CODEADVENTURE_DB_PATH` permite escolher outro caminho. Executar os testes com `python -m pytest`.
+A verificacao de disponibilidade da API fica em `/api/v1/health`; a documentacao interativa gerada pelo FastAPI fica em `/docs`. A raiz `/` apresenta informacao da API e `/favicon.ico` responde sem o 404 habitual do navegador. A base SQLite e criada em `data/codeadventure.db` na primeira inicializacao. Para desenvolvimento/testes, `CODEADVENTURE_DB_PATH` permite escolher outro caminho. Executar os testes com `python -m pytest`.
 
 O registo e login ficam disponiveis em `/api/v1/auth/register` e `/api/v1/auth/login`; ambos devolvem um token Bearer de curta duracao. O perfil protegido fica em `/api/v1/users/me`. Os nomes de utilizador aceitam 3–32 letras ASCII, numeros, `_` ou `-` e sao unicos sem distinguir maiusculas de minusculas. As palavras-passe aceitam 8–128 caracteres e sao guardadas com hash Argon2. Configurar `CODEADVENTURE_SECRET_KEY` com um segredo aleatorio de pelo menos 32 caracteres antes de iniciar a API. `CODEADVENTURE_CORS_ORIGINS` aceita uma lista separada por virgulas; por omissao, permite apenas os enderecos de desenvolvimento Vite locais.
 
-Esta etapa acrescenta autenticacao e perfil; o catalogo de mundos e o registo de progresso ficam para os incrementos seguintes.
+As migracoes da base de dados criam as tabelas do catalogo e do progresso. Esta etapa disponibiliza o mapa e o resumo de progresso; a submissao de resultados de desafios fica para os incrementos de jogo seguintes.
