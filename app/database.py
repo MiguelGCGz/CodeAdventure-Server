@@ -36,20 +36,20 @@ WORLD_ONE_PATTERNS = (
 )
 
 WORLD_TWO_ROUTES = (
-    "RRRRUUU",
-    "URRRRUU",
-    "RURRRUU",
-    "RRURRUU",
-    "RRRURUU",
-    "UURRRRU",
-    "URURRRU",
-    "RUURRRU",
-    "RRUURRU",
-    "RRRUURU",
-    "DRRRRUUUU",
-    "RDRRRUUUU",
-    "RRDRRUUUU",
-    "RRRDRUUUU",
+    "RRURU",
+    "URRRU",
+    "RRRRUUUU",
+    "UURRRRUU",
+    "URURRURU",
+    "RRRRRUUUUU",
+    "UURRRRURUU",
+    "URURURRRUU",
+    "RRRRRRUUUUUU",
+    "UURRRRRRUUUU",
+    "RURURURRRUUU",
+    "RRRRRRRUUUUUUU",
+    "UURRRRRUUURRUU",
+    "RURURURURURURU",
 )
 
 INTRODUCTORY_LEVELS = [
@@ -87,14 +87,18 @@ def _pattern_challenge(pattern: list[str], answer: int) -> dict[str, object]:
     }
 
 
-def _path_challenge(route: str) -> dict[str, object]:
+def _path_challenge(route: str, position: int) -> dict[str, object]:
     directions = {
         "U": (-1, 0),
         "D": (1, 0),
         "L": (0, -1),
         "R": (0, 1),
     }
-    row, column = 3, 0
+    difficulty = (position - 1) // 3 + 1
+    rows, columns = ((3, 4), (5, 5), (6, 6), (7, 7), (8, 8))[difficulty - 1]
+    start = (rows - 1, 0)
+    goal = (0, columns - 1)
+    row, column = start
     visited = {(row, column)}
     for direction in route:
         delta_row, delta_column = directions[direction]
@@ -102,18 +106,26 @@ def _path_challenge(route: str) -> dict[str, object]:
         column += delta_column
         visited.add((row, column))
 
-    possible_walls = [(1, 1), (1, 2), (1, 3), (2, 1), (2, 2), (2, 3), (3, 1), (3, 2)]
-    walls = [cell for cell in possible_walls if cell not in visited][:2]
+    possible_walls = [
+        (wall_row, wall_column)
+        for wall_row in range(rows)
+        for wall_column in range(columns)
+        if (wall_row, wall_column) not in visited
+    ]
+    offset = (position * 3) % len(possible_walls)
+    possible_walls = possible_walls[offset:] + possible_walls[:offset]
+    walls = possible_walls[: difficulty + 1]
     return {
         "type": "path_commands",
         "challenge": {
-            "rows": 5,
-            "columns": 5,
-            "start": [3, 0],
-            "goal": [0, 4],
+            "rows": rows,
+            "columns": columns,
+            "start": list(start),
+            "goal": list(goal),
             "walls": [list(cell) for cell in walls],
             "max_commands": len(route) + 3,
             "optimal_commands": len(route),
+            "difficulty": difficulty,
         },
         "solution": None,
         "route": route,
@@ -134,12 +146,13 @@ LEVEL_CHALLENGES[2] = {
         "walls": [[1, 1], [1, 2]],
         "max_commands": 8,
         "optimal_commands": 5,
+        "difficulty": 1,
     },
     "solution": None,
     "route": "RRRUU",
 }
 for position, route in enumerate(WORLD_TWO_ROUTES, start=2):
-    LEVEL_CHALLENGES[_level_id(2, position)] = _path_challenge(route)
+    LEVEL_CHALLENGES[_level_id(2, position)] = _path_challenge(route, position)
 
 
 def get_database_path() -> Path:

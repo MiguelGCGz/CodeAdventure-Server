@@ -52,7 +52,7 @@ Os endpoints e formatos implementados abaixo formam o contrato atual entre os do
 - `GET /api/v1/levels/{id}` devolve os dados de um desafio desbloqueado, sem revelar a resposta.
 - `POST /api/v1/levels/{id}/submit` valida a resposta no servidor e guarda estrelas e XP uma unica vez por jogador.
 
-Os mundos 1 e 2 tem 15 desafios cada: completar padroes numericos e planear percursos com instrucoes direcionais, respetivamente. Os outros mundos continuam marcados como "em breve". Cada nivel desbloqueia o seguinte; o mundo seguinte so fica disponivel depois de concluir os 15 niveis do atual. O progresso e guardado por utilizador na tabela `level_progress`; as respostas sao validadas pelo Server e XP nao pode ser obtido repetindo um desafio concluido.
+Os mundos 1 e 2 tem 15 desafios cada: completar padroes numericos e planear percursos com instrucoes direcionais, respetivamente. Os percursos do Mundo 2 usam grelhas e obstaculos distintos, com a dificuldade a aumentar a cada tres niveis. Os outros mundos continuam marcados como "em breve". Cada nivel desbloqueia o seguinte; o mundo seguinte so fica disponivel depois de concluir os 15 niveis do atual. O progresso e guardado por utilizador na tabela `level_progress`; as respostas sao validadas pelo Server e XP nao pode ser obtido repetindo um desafio concluido.
 
 ## Conteudo pedagogico
 

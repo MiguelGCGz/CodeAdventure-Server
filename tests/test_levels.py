@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sqlite3
 
 import httpx
@@ -186,12 +187,34 @@ def test_all_fifteen_algorithm_levels_are_solvable_and_unlock_next_world(
         token=player_token,
     )
     assert first_world_two.json()["correct"] is True
+    first_challenge = api_request("GET", "/api/v1/levels/2", token=player_token)
+    challenge_configurations = {
+        json.dumps(
+            first_challenge.json()["challenge"],
+            sort_keys=True,
+        )
+    }
+    assert first_challenge.json()["challenge"]["difficulty"] == 1
+    assert first_challenge.json()["challenge"]["optimal_commands"] == 5
+    assert len(set(WORLD_TWO_ROUTES)) == 14
+    expected_dimensions = ((3, 4), (5, 5), (6, 6), (7, 7), (8, 8))
+    expected_steps = (5, 8, 10, 12, 14)
     for position, route in enumerate(WORLD_TWO_ROUTES, start=2):
         level_id = _level_id(2, position)
         response = api_request("GET", f"/api/v1/levels/{level_id}", token=player_token)
         assert response.status_code == 200, f"Position {position}: {response.json()}"
         assert response.json()["challenge_type"] == "path_commands"
-        assert response.json()["challenge"]["max_commands"] >= len(route)
+        challenge = response.json()["challenge"]
+        difficulty = (position - 1) // 3 + 1
+        assert challenge["max_commands"] >= len(route)
+        assert challenge["optimal_commands"] == len(route)
+        assert challenge["difficulty"] == difficulty
+        assert (challenge["rows"], challenge["columns"]) == expected_dimensions[difficulty - 1]
+        assert len(challenge["walls"]) == difficulty + 1
+        assert len(route) == expected_steps[difficulty - 1]
+        challenge_configurations.add(
+            json.dumps(challenge, sort_keys=True)
+        )
         result = api_request(
             "POST",
             f"/api/v1/levels/{level_id}/submit",
@@ -201,6 +224,7 @@ def test_all_fifteen_algorithm_levels_are_solvable_and_unlock_next_world(
         assert result.status_code == 200
         assert result.json()["correct"] is True, f"Position {position}, route {route}"
 
+    assert len(challenge_configurations) == 15
     dashboard = api_request(
         "GET",
         "/api/v1/users/me/dashboard",
