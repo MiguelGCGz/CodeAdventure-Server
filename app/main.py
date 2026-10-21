@@ -1,8 +1,10 @@
 import os
 from sqlite3 import Row
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated, AsyncIterator, Literal
 
+from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, StringConstraints
@@ -14,6 +16,9 @@ from app.auth import (
     get_current_user,
 )
 from app.database import get_connection, initialize_database
+
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=True)
 
 
 @asynccontextmanager

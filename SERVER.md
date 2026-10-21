@@ -94,11 +94,18 @@ Ranking, modo professor, graficos/analitica avancada, sons e animacoes adicionai
 
 Requer Python 3.11 ou superior. Na pasta deste repositorio, criar um ambiente virtual, instalar as dependencias e iniciar a API:
 
+O segredo `CODEADVENTURE_SECRET_KEY` e carregado automaticamente do ficheiro `.env` nesta pasta, por isso nao e necessario gera-lo de novo em cada terminal. O `.env` esta excluido do Git. Se ainda nao existir, cria-o uma vez no PowerShell com:
+
+```powershell
+python -c "import secrets; from pathlib import Path; Path('.env').open('x', encoding='utf-8').write('CODEADVENTURE_SECRET_KEY=' + secrets.token_urlsafe(48) + '\n')"
+```
+
+Depois, inicia ou reinicia normalmente com `uvicorn app.main:app --reload`. Guarda o `.env` localmente e nunca publiques nem partilhes o seu conteudo.
+
 ```bash
 python -m venv .venv
 # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
-$env:CODEADVENTURE_SECRET_KEY = python -c "import secrets; print(secrets.token_urlsafe(48))"
 uvicorn app.main:app --reload
 ```
 
