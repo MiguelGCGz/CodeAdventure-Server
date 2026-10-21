@@ -4,7 +4,12 @@ import sqlite3
 import httpx
 import pytest
 
-from app.database import initialize_database
+from app.database import (
+    WORLD_ONE_PATTERNS,
+    WORLD_TWO_ROUTES,
+    _level_id,
+    initialize_database,
+)
 from app.main import app
 
 
@@ -48,6 +53,11 @@ def api_request(
     token: str | None = None,
 ) -> httpx.Response:
     return asyncio.run(_request(method, path, json=json, token=token))
+
+
+def route_commands(route: str) -> list[str]:
+    directions = {"U": "up", "D": "down", "L": "left", "R": "right"}
+    return [directions[step] for step in route]
 
 
 def test_level_one_returns_playable_sequence_without_solution(
@@ -108,9 +118,9 @@ def test_correct_sequence_awards_xp_once_and_unlocks_world_two(
     assert replay.json()["already_completed"] is True
     assert replay.json()["xp_awarded"] == 0
 
-    unlocked = api_request("GET", "/api/v1/levels/2", token=player_token)
-    assert unlocked.status_code == 200
-    assert unlocked.json()["challenge_type"] == "path_commands"
+    next_level = api_request("GET", "/api/v1/levels/102", token=player_token)
+    assert next_level.status_code == 200
+    assert next_level.json()["challenge_type"] == "sequence_choice"
 
     dashboard = api_request(
         "GET",
@@ -118,18 +128,98 @@ def test_correct_sequence_awards_xp_once_and_unlocks_world_two(
         token=player_token,
     )
     assert dashboard.json()["total_xp"] == 50
+    assert dashboard.json()["worlds"][0]["levels"][1]["status"] == "available"
+    assert dashboard.json()["worlds"][1]["status"] == "locked"
+
+
+def test_all_fifteen_pattern_levels_have_distinct_solutions_and_stay_same_type(
+    player_token: str,
+) -> None:
+    assert len(WORLD_ONE_PATTERNS) == 15
+    for position, (pattern, answer) in enumerate(WORLD_ONE_PATTERNS, start=1):
+        challenge_id = _level_id(1, position)
+        response = api_request(
+            "GET",
+            f"/api/v1/levels/{challenge_id}",
+            token=player_token,
+        )
+        assert response.status_code == 200
+        assert response.json()["challenge_type"] == "sequence_choice"
+        assert response.json()["challenge"]["pattern"] == pattern
+        assert str(answer) in response.json()["challenge"]["choices"]
+        assert "solution" not in response.json()
+        result = api_request(
+            "POST",
+            f"/api/v1/levels/{challenge_id}/submit",
+            json={"answer": str(answer)},
+            token=player_token,
+        )
+        assert result.status_code == 200
+        assert result.json()["correct"] is True, f"Position {position}, route {route}"
+
+    dashboard = api_request(
+        "GET",
+        "/api/v1/users/me/dashboard",
+        token=player_token,
+    )
+    assert dashboard.json()["worlds"][0]["status"] == "completed"
     assert dashboard.json()["worlds"][1]["status"] == "available"
+    assert dashboard.json()["worlds"][1]["levels"][0]["status"] == "available"
+
+
+def test_all_fifteen_algorithm_levels_are_solvable_and_unlock_next_world(
+    player_token: str,
+) -> None:
+    for position, (_, answer) in enumerate(WORLD_ONE_PATTERNS, start=1):
+        api_request(
+            "POST",
+            f"/api/v1/levels/{_level_id(1, position)}/submit",
+            json={"answer": str(answer)},
+            token=player_token,
+        )
+
+    assert len(WORLD_TWO_ROUTES) == 14
+    first_world_two = api_request(
+        "POST",
+        "/api/v1/levels/2/submit",
+        json={"answer": route_commands("RRRUU")},
+        token=player_token,
+    )
+    assert first_world_two.json()["correct"] is True
+    for position, route in enumerate(WORLD_TWO_ROUTES, start=2):
+        level_id = _level_id(2, position)
+        response = api_request("GET", f"/api/v1/levels/{level_id}", token=player_token)
+        assert response.status_code == 200, f"Position {position}: {response.json()}"
+        assert response.json()["challenge_type"] == "path_commands"
+        assert response.json()["challenge"]["max_commands"] >= len(route)
+        result = api_request(
+            "POST",
+            f"/api/v1/levels/{level_id}/submit",
+            json={"answer": route_commands(route)},
+            token=player_token,
+        )
+        assert result.status_code == 200
+        assert result.json()["correct"] is True, f"Position {position}, route {route}"
+
+    dashboard = api_request(
+        "GET",
+        "/api/v1/users/me/dashboard",
+        token=player_token,
+    )
+    assert dashboard.json()["worlds"][1]["status"] == "completed"
+    assert dashboard.json()["worlds"][2]["status"] == "available"
 
 
 def test_algorithm_path_validates_moves_and_awards_stars(
     player_token: str,
 ) -> None:
-    api_request(
-        "POST",
-        "/api/v1/levels/1/submit",
-        json={"answer": "8"},
-        token=player_token,
-    )
+    for position, (_, answer) in enumerate(WORLD_ONE_PATTERNS, start=1):
+        api_request(
+            "POST",
+            f"/api/v1/levels/{_level_id(1, position)}/submit",
+            json={"answer": str(answer)},
+            token=player_token,
+        )
     blocked_path = api_request(
         "POST",
         "/api/v1/levels/2/submit",
@@ -202,6 +292,15 @@ def test_existing_database_is_upgraded_without_losing_world_rows(
         world_count = connection.execute("SELECT COUNT(*) FROM worlds").fetchone()[0]
 
     assert {"challenge_type", "challenge_json", "solution_json"} <= columns
-    assert version == 4
+    assert version == 5
     assert challenge_type == "sequence_choice"
     assert world_count == 6
+    with sqlite3.connect(database_path) as connection:
+        first_world_levels = connection.execute(
+            "SELECT COUNT(*) FROM levels WHERE world_id = 1"
+        ).fetchone()[0]
+        second_world_levels = connection.execute(
+            "SELECT COUNT(*) FROM levels WHERE world_id = 2"
+        ).fetchone()[0]
+    assert first_world_levels == 15
+    assert second_world_levels == 15

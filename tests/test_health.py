@@ -31,7 +31,7 @@ def test_health_check_initializes_database_and_returns_status(
     }
     with sqlite3.connect(database_path) as connection:
         versions = connection.execute("SELECT version FROM schema_version").fetchall()
-    assert versions == [(1,), (2,), (3,), (4,)]
+    assert versions == [(1,), (2,), (3,), (4,), (5,)]
 
 
 def test_root_describes_api_and_favicon_is_not_missing(tmp_path, monkeypatch) -> None:

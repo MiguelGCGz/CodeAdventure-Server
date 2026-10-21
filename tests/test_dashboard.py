@@ -53,7 +53,7 @@ def test_new_player_dashboard_shows_seeded_worlds_and_initial_unlock(
     assert result["player"]["username"] == "MapExplorer"
     assert result["total_xp"] == 0
     assert result["completed_levels"] == 0
-    assert result["total_levels"] == 6
+    assert result["total_levels"] == 34
     assert result["progress_percentage"] == 0
     assert [world["status"] for world in result["worlds"]] == [
         "available",
@@ -64,12 +64,16 @@ def test_new_player_dashboard_shows_seeded_worlds_and_initial_unlock(
         "locked",
     ]
     assert result["worlds"][0]["levels"][0]["status"] == "available"
+    assert result["worlds"][0]["total_levels"] == 15
+    assert result["worlds"][1]["total_levels"] == 15
+    assert len(result["worlds"][0]["levels"]) == 15
+    assert len(result["worlds"][1]["levels"]) == 15
 
     with sqlite3.connect(dashboard_environment) as connection:
         world_count = connection.execute("SELECT COUNT(*) FROM worlds").fetchone()[0]
         level_count = connection.execute("SELECT COUNT(*) FROM levels").fetchone()[0]
     assert world_count == 6
-    assert level_count == 6
+    assert level_count == 34
 
 
 def test_completed_level_awards_only_saved_xp_and_unlocks_next_world(
@@ -101,11 +105,11 @@ def test_completed_level_awards_only_saved_xp_and_unlocks_next_world(
     assert response.status_code == 200
     assert result["total_xp"] == 35
     assert result["completed_levels"] == 1
-    assert result["progress_percentage"] == 17
-    assert result["worlds"][0]["status"] == "completed"
+    assert result["progress_percentage"] == 3
     assert result["worlds"][0]["levels"][0]["stars"] == 2
-    assert result["worlds"][1]["status"] == "available"
-    assert result["worlds"][1]["levels"][0]["status"] == "available"
+    assert result["worlds"][0]["status"] == "available"
+    assert result["worlds"][0]["levels"][1]["status"] == "available"
+    assert result["worlds"][1]["status"] == "locked"
 
 
 def test_world_catalog_is_public_and_dashboard_requires_authentication(

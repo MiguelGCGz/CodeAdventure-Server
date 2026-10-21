@@ -17,38 +17,129 @@ WORLD_CATALOG = (
     (6, "Primeiros passos no código", "Relaciona os blocos com código JavaScript.", "💻", "pink"),
 )
 
-INTRODUCTORY_LEVELS = (
+WORLD_ONE_PATTERNS = (
+    (["2", "4", "6", "?"], 8),
+    (["5", "10", "15", "?"], 20),
+    (["10", "9", "8", "?"], 7),
+    (["3", "6", "9", "?"], 12),
+    (["1", "3", "5", "?"], 7),
+    (["20", "18", "16", "?"], 14),
+    (["4", "8", "12", "?"], 16),
+    (["7", "14", "21", "?"], 28),
+    (["2", "5", "8", "?"], 11),
+    (["30", "25", "20", "?"], 15),
+    (["1", "2", "4", "8", "?"], 16),
+    (["5", "10", "20", "?"], 40),
+    (["100", "90", "80", "?"], 70),
+    (["6", "9", "12", "?"], 15),
+    (["11", "22", "33", "?"], 44),
+)
+
+WORLD_TWO_ROUTES = (
+    "RRRRUUU",
+    "URRRRUU",
+    "RURRRUU",
+    "RRURRUU",
+    "RRRURUU",
+    "UURRRRU",
+    "URURRRU",
+    "RUURRRU",
+    "RRUURRU",
+    "RRRUURU",
+    "DRRRRUUUU",
+    "RDRRRUUUU",
+    "RRDRRUUUU",
+    "RRRDRUUUU",
+)
+
+INTRODUCTORY_LEVELS = [
     (1, 1, "Encontra o padrão", "Observa a sequência e descobre o elemento que falta."),
     (2, 1, "A caminho do objetivo", "Pensa numa sequência de passos para chegar ao destino."),
     (3, 1, "Escolhe o caminho", "Decide que caminho seguir perante uma situação."),
     (4, 1, "Passos repetidos", "Reconhece uma sequência de passos que se repete."),
     (5, 1, "O primeiro programa", "Organiza blocos para criar uma sequência de instruções."),
     (6, 1, "Olá, JavaScript!", "Descobre como uma instrução visual aparece em código."),
-)
+]
 
-LEVEL_CHALLENGES = {
-    1: {
+INTRODUCTORY_LEVELS.extend(
+    (1, position, f"Padrão numérico {position:02}", "Descobre a regra e escolhe o número que completa o padrão.")
+    for position in range(2, 16)
+)
+INTRODUCTORY_LEVELS.extend(
+    (2, position, f"Percurso do explorador {position:02}", "Planeia as instruções para levar o explorador até à estrela.")
+    for position in range(2, 16)
+)
+INTRODUCTORY_LEVELS.sort(key=lambda level: (level[0], level[1]))
+
+
+def _level_id(world_id: int, position: int) -> int:
+    return world_id if position == 1 else world_id * 100 + position
+
+
+def _pattern_challenge(pattern: list[str], answer: int) -> dict[str, object]:
+    return {
         "type": "sequence_choice",
         "challenge": {
-            "pattern": ["2", "4", "6", "?"],
-            "choices": ["7", "8", "9"],
+            "pattern": pattern,
+            "choices": [str(answer - 1), str(answer), str(answer + 1)],
         },
-        "solution": "8",
-    },
-    2: {
+        "solution": str(answer),
+    }
+
+
+def _path_challenge(route: str) -> dict[str, object]:
+    directions = {
+        "U": (-1, 0),
+        "D": (1, 0),
+        "L": (0, -1),
+        "R": (0, 1),
+    }
+    row, column = 3, 0
+    visited = {(row, column)}
+    for direction in route:
+        delta_row, delta_column = directions[direction]
+        row += delta_row
+        column += delta_column
+        visited.add((row, column))
+
+    possible_walls = [(1, 1), (1, 2), (1, 3), (2, 1), (2, 2), (2, 3), (3, 1), (3, 2)]
+    walls = [cell for cell in possible_walls if cell not in visited][:2]
+    return {
         "type": "path_commands",
         "challenge": {
-            "rows": 3,
-            "columns": 4,
-            "start": [2, 0],
-            "goal": [0, 3],
-            "walls": [[1, 1], [1, 2]],
-            "max_commands": 8,
-            "optimal_commands": 5,
+            "rows": 5,
+            "columns": 5,
+            "start": [3, 0],
+            "goal": [0, 4],
+            "walls": [list(cell) for cell in walls],
+            "max_commands": len(route) + 3,
+            "optimal_commands": len(route),
         },
         "solution": None,
+        "route": route,
+    }
+
+
+LEVEL_CHALLENGES: dict[int, dict[str, object]] = {}
+for position, (pattern, answer) in enumerate(WORLD_ONE_PATTERNS, start=1):
+    LEVEL_CHALLENGES[_level_id(1, position)] = _pattern_challenge(pattern, answer)
+
+LEVEL_CHALLENGES[2] = {
+    "type": "path_commands",
+    "challenge": {
+        "rows": 3,
+        "columns": 4,
+        "start": [2, 0],
+        "goal": [0, 3],
+        "walls": [[1, 1], [1, 2]],
+        "max_commands": 8,
+        "optimal_commands": 5,
     },
+    "solution": None,
+    "route": "RRRUU",
 }
+for position, route in enumerate(WORLD_TWO_ROUTES, start=2):
+    LEVEL_CHALLENGES[_level_id(2, position)] = _path_challenge(route)
 
 
 def get_database_path() -> Path:
@@ -165,7 +256,13 @@ def initialize_database() -> None:
             VALUES (?, ?, ?, ?, ?, 50)
             """,
             (
-                (world_id, world_id, position, title, objective)
+                (
+                    _level_id(world_id, position),
+                    world_id,
+                    position,
+                    title,
+                    objective,
+                )
                 for world_id, position, title, objective in INTRODUCTORY_LEVELS
             ),
         )
@@ -188,4 +285,7 @@ def initialize_database() -> None:
         )
         connection.execute(
             "INSERT OR IGNORE INTO schema_version (version) VALUES (4)"
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (5)"
         )
