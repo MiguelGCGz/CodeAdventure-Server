@@ -1,4 +1,5 @@
 import os
+import json
 import sqlite3
 from contextlib import closing, contextmanager
 from pathlib import Path
@@ -24,6 +25,30 @@ INTRODUCTORY_LEVELS = (
     (5, 1, "O primeiro programa", "Organiza blocos para criar uma sequência de instruções."),
     (6, 1, "Olá, JavaScript!", "Descobre como uma instrução visual aparece em código."),
 )
+
+LEVEL_CHALLENGES = {
+    1: {
+        "type": "sequence_choice",
+        "challenge": {
+            "pattern": ["2", "4", "6", "?"],
+            "choices": ["7", "8", "9"],
+        },
+        "solution": "8",
+    },
+    2: {
+        "type": "path_commands",
+        "challenge": {
+            "rows": 3,
+            "columns": 4,
+            "start": [2, 0],
+            "goal": [0, 3],
+            "walls": [[1, 1], [1, 2]],
+            "max_commands": 8,
+            "optimal_commands": 5,
+        },
+        "solution": None,
+    },
+}
 
 
 def get_database_path() -> Path:
@@ -90,10 +115,26 @@ def initialize_database() -> None:
                 title TEXT NOT NULL,
                 objective TEXT NOT NULL,
                 xp_reward INTEGER NOT NULL CHECK (xp_reward >= 0),
+                challenge_type TEXT NOT NULL DEFAULT 'coming_soon',
+                challenge_json TEXT NOT NULL DEFAULT '{}',
+                solution_json TEXT NOT NULL DEFAULT 'null',
                 UNIQUE (world_id, position)
             )
             """
         )
+        level_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(levels)").fetchall()
+        }
+        for column, definition in (
+            ("challenge_type", "TEXT NOT NULL DEFAULT 'coming_soon'"),
+            ("challenge_json", "TEXT NOT NULL DEFAULT '{}'"),
+            ("solution_json", "TEXT NOT NULL DEFAULT 'null'"),
+        ):
+            if column not in level_columns:
+                connection.execute(
+                    f"ALTER TABLE levels ADD COLUMN {column} {definition}"
+                )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS level_progress (
@@ -128,6 +169,23 @@ def initialize_database() -> None:
                 for world_id, position, title, objective in INTRODUCTORY_LEVELS
             ),
         )
+        for level_id, configuration in LEVEL_CHALLENGES.items():
+            connection.execute(
+                """
+                UPDATE levels
+                SET challenge_type = ?, challenge_json = ?, solution_json = ?
+                WHERE id = ?
+                """,
+                (
+                    configuration["type"],
+                    json.dumps(configuration["challenge"], ensure_ascii=False),
+                    json.dumps(configuration["solution"], ensure_ascii=False),
+                    level_id,
+                ),
+            )
         connection.execute(
             "INSERT OR IGNORE INTO schema_version (version) VALUES (3)"
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (4)"
         )

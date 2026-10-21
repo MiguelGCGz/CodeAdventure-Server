@@ -1,4 +1,6 @@
+import json
 import os
+from collections.abc import Sequence
 from sqlite3 import Row
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -72,6 +74,7 @@ class LevelSummary(BaseModel):
     title: str
     objective: str
     xp_reward: int
+    challenge_type: Literal["sequence_choice", "path_commands", "coming_soon"]
     status: Literal["available", "locked", "completed"]
     stars: int | None
 
@@ -93,6 +96,7 @@ class CatalogLevelItem(BaseModel):
     title: str
     objective: str
     xp_reward: int
+    challenge_type: Literal["sequence_choice", "path_commands", "coming_soon"]
 
 
 class WorldCatalog(BaseModel):
@@ -111,6 +115,34 @@ class DashboardResponse(BaseModel):
     total_levels: int
     progress_percentage: int
     worlds: list[WorldSummary]
+
+
+class LevelChallengeResponse(BaseModel):
+    id: int
+    world_id: int
+    world_title: str
+    title: str
+    objective: str
+    xp_reward: int
+    challenge_type: Literal["sequence_choice", "path_commands", "coming_soon"]
+    challenge: dict[str, object]
+    completed: bool
+    stars: int | None
+
+
+Direction = Literal["up", "down", "left", "right"]
+
+
+class LevelSubmission(BaseModel):
+    answer: str | list[Direction]
+
+
+class LevelSubmissionResponse(BaseModel):
+    correct: bool
+    already_completed: bool
+    stars: int | None
+    xp_awarded: int
+    message: str
 
 
 api_router = APIRouter(prefix="/api/v1")
@@ -135,7 +167,7 @@ def list_worlds() -> list[WorldCatalog]:
             SELECT w.id AS world_id, w.title AS world_title,
                    w.description, w.icon, w.theme_color,
                    l.id AS level_id, l.title AS level_title,
-                   l.objective, l.xp_reward
+                   l.objective, l.xp_reward, l.challenge_type
             FROM worlds AS w
             LEFT JOIN levels AS l ON l.world_id = w.id
             ORDER BY w.position, l.position
@@ -162,6 +194,7 @@ def list_worlds() -> list[WorldCatalog]:
                     title=row["level_title"],
                     objective=row["objective"],
                     xp_reward=row["xp_reward"],
+                    challenge_type=row["challenge_type"],
                 )
             )
     return list(catalog.values())
@@ -246,7 +279,7 @@ def read_dashboard(
             SELECT w.id AS world_id, w.title AS world_title,
                    w.description, w.icon, w.theme_color,
                    l.id AS level_id, l.title AS level_title,
-                   l.objective, l.xp_reward,
+                   l.objective, l.xp_reward, l.challenge_type,
                    p.stars, p.xp_awarded
             FROM worlds AS w
             LEFT JOIN levels AS l ON l.world_id = w.id
@@ -287,6 +320,7 @@ def read_dashboard(
                     title=row["level_title"],
                     objective=row["objective"],
                     xp_reward=row["xp_reward"],
+                    challenge_type=row["challenge_type"],
                     status=level_status,
                     stars=row["stars"],
                 )
@@ -334,6 +368,197 @@ def read_dashboard(
             round(completed_levels / total_levels * 100) if total_levels else 0
         ),
         worlds=worlds,
+    )
+
+
+def _get_accessible_level(user_id: int, level_id: int) -> Row:
+    with get_connection() as connection:
+        level = connection.execute(
+            """
+            SELECT l.id, l.world_id, l.position, l.title, l.objective,
+                   l.xp_reward, l.challenge_type, l.challenge_json,
+                   l.solution_json, w.title AS world_title
+            FROM levels AS l
+            JOIN worlds AS w ON w.id = l.world_id
+            WHERE l.id = ?
+            """,
+            (level_id,),
+        ).fetchone()
+        if level is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Desafio não encontrado.")
+
+        previous_level = connection.execute(
+            """
+            SELECT p.level_id
+            FROM levels AS prior
+            JOIN worlds AS prior_world ON prior_world.id = prior.world_id
+            LEFT JOIN level_progress AS p
+              ON p.level_id = prior.id AND p.user_id = ?
+            JOIN worlds AS current_world ON current_world.id = ?
+            WHERE prior_world.position < current_world.position
+               OR (
+                   prior_world.position = current_world.position
+                   AND prior.position < ?
+               )
+            ORDER BY prior_world.position DESC, prior.position DESC
+            LIMIT 1
+            """,
+            (user_id, level["world_id"], level["position"]),
+        ).fetchone()
+        if previous_level is not None and previous_level["level_id"] is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Conclui o desafio anterior para desbloquear este.",
+            )
+        return level
+
+
+@api_router.get(
+    "/levels/{level_id}",
+    response_model=LevelChallengeResponse,
+    tags=["levels"],
+)
+def read_level(
+    level_id: int,
+    user_id: Annotated[int, Depends(get_current_user)],
+) -> LevelChallengeResponse:
+    level = _get_accessible_level(user_id, level_id)
+    with get_connection() as connection:
+        progress = connection.execute(
+            """
+            SELECT stars FROM level_progress
+            WHERE user_id = ? AND level_id = ?
+            """,
+            (user_id, level_id),
+        ).fetchone()
+    return LevelChallengeResponse(
+        id=level["id"],
+        world_id=level["world_id"],
+        world_title=level["world_title"],
+        title=level["title"],
+        objective=level["objective"],
+        xp_reward=level["xp_reward"],
+        challenge_type=level["challenge_type"],
+        challenge=json.loads(level["challenge_json"]),
+        completed=progress is not None,
+        stars=progress["stars"] if progress is not None else None,
+    )
+
+
+def _path_is_correct(
+    answer: Sequence[str],
+    challenge: dict[str, object],
+) -> bool:
+    if not answer or len(answer) > challenge["max_commands"]:
+        return False
+    rows = challenge["rows"]
+    columns = challenge["columns"]
+    start = challenge["start"]
+    goal = challenge["goal"]
+    walls = {tuple(cell) for cell in challenge["walls"]}
+    row, column = start
+    directions = {
+        "up": (-1, 0),
+        "down": (1, 0),
+        "left": (0, -1),
+        "right": (0, 1),
+    }
+    for index, command in enumerate(answer):
+        delta_row, delta_column = directions[command]
+        row += delta_row
+        column += delta_column
+        if (
+            row < 0
+            or row >= rows
+            or column < 0
+            or column >= columns
+            or (row, column) in walls
+        ):
+            return False
+        if [row, column] == goal and index != len(answer) - 1:
+            return False
+    return [row, column] == goal
+
+
+def _check_level_answer(
+    level: Row,
+    answer: str | list[str],
+) -> tuple[bool, int]:
+    challenge = json.loads(level["challenge_json"])
+    if level["challenge_type"] == "sequence_choice":
+        solution = json.loads(level["solution_json"])
+        return answer == solution, 3
+    if level["challenge_type"] == "path_commands" and isinstance(answer, list):
+        correct = _path_is_correct(answer, challenge)
+        if not correct:
+            return False, 0
+        optimal = challenge["optimal_commands"]
+        stars = 3 if len(answer) <= optimal else 2 if len(answer) <= optimal + 2 else 1
+        return True, stars
+    return False, 0
+
+
+@api_router.post(
+    "/levels/{level_id}/submit",
+    response_model=LevelSubmissionResponse,
+    tags=["levels"],
+)
+def submit_level(
+    level_id: int,
+    submission: LevelSubmission,
+    user_id: Annotated[int, Depends(get_current_user)],
+) -> LevelSubmissionResponse:
+    level = _get_accessible_level(user_id, level_id)
+    if level["challenge_type"] == "coming_soon":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este desafio ainda não está disponível.",
+        )
+    correct, stars = _check_level_answer(level, submission.answer)
+    if not correct:
+        return LevelSubmissionResponse(
+            correct=False,
+            already_completed=False,
+            stars=None,
+            xp_awarded=0,
+            message="Ainda não! Revê a sequência e tenta outra vez.",
+        )
+
+    xp_awarded = {
+        3: level["xp_reward"],
+        2: round(level["xp_reward"] * 0.7),
+        1: round(level["xp_reward"] * 0.4),
+    }[stars]
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO level_progress (user_id, level_id, stars, xp_awarded)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (user_id, level_id) DO NOTHING
+            """,
+            (user_id, level_id, stars, xp_awarded),
+        )
+        if cursor.rowcount == 0:
+            existing = connection.execute(
+                """
+                SELECT stars FROM level_progress
+                WHERE user_id = ? AND level_id = ?
+                """,
+                (user_id, level_id),
+            ).fetchone()
+            return LevelSubmissionResponse(
+                correct=True,
+                already_completed=True,
+                stars=existing["stars"],
+                xp_awarded=0,
+                message="Este desafio já está concluído. As tuas estrelas estão guardadas!",
+            )
+    return LevelSubmissionResponse(
+        correct=True,
+        already_completed=False,
+        stars=stars,
+        xp_awarded=xp_awarded,
+        message="Muito bem! Concluíste o desafio e ganhaste experiência.",
     )
 
 

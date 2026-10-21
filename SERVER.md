@@ -49,8 +49,10 @@ Os endpoints e formatos implementados abaixo formam o contrato atual entre os do
 - `GET /favicon.ico` responde sem erro quando o navegador pede o favicon.
 - `GET /api/v1/worlds` devolve o catalogo publico de mundos e desafios introdutorios.
 - `GET /api/v1/users/me/dashboard` requer Bearer token e devolve XP, desafios concluidos, percentagem e estado/desbloqueio de cada mundo.
+- `GET /api/v1/levels/{id}` devolve os dados de um desafio desbloqueado, sem revelar a resposta.
+- `POST /api/v1/levels/{id}/submit` valida a resposta no servidor e guarda estrelas e XP uma unica vez por jogador.
 
-O catalogo inicial tem seis mundos e um desafio introdutorio em cada. Um mundo so e desbloqueado depois de todos os desafios do mundo anterior serem concluidos. O progresso e guardado por utilizador na tabela `level_progress`; nesta etapa, os resultados ainda nao sao submetidos pela API, pelo que as contas novas comecam com 0 XP e apenas o primeiro mundo disponivel.
+O catalogo inicial tem seis mundos e um desafio introdutorio em cada. Os dois primeiros mundos incluem desafios interativos de sequencias e algoritmos; os seguintes ficam marcados como "em breve". Um mundo so e desbloqueado depois de todos os desafios do mundo anterior serem concluidos. O progresso e guardado por utilizador na tabela `level_progress`; as respostas sao validadas pelo Server e XP nao pode ser obtido repetindo um desafio concluido.
 
 ## Conteudo pedagogico
 
@@ -113,4 +115,4 @@ A verificacao de disponibilidade da API fica em `/api/v1/health`; a documentacao
 
 O registo e login ficam disponiveis em `/api/v1/auth/register` e `/api/v1/auth/login`; ambos devolvem um token Bearer de curta duracao. O perfil protegido fica em `/api/v1/users/me`. Os nomes de utilizador aceitam 3–32 letras ASCII, numeros, `_` ou `-` e sao unicos sem distinguir maiusculas de minusculas. As palavras-passe aceitam 8–128 caracteres e sao guardadas com hash Argon2. Configurar `CODEADVENTURE_SECRET_KEY` com um segredo aleatorio de pelo menos 32 caracteres antes de iniciar a API. `CODEADVENTURE_CORS_ORIGINS` aceita uma lista separada por virgulas; por omissao, permite apenas os enderecos de desenvolvimento Vite locais.
 
-As migracoes da base de dados criam as tabelas do catalogo e do progresso. Esta etapa disponibiliza o mapa e o resumo de progresso; a submissao de resultados de desafios fica para os incrementos de jogo seguintes.
+As migracoes da base de dados criam as tabelas do catalogo e do progresso e acrescentam a configuracao dos desafios sem apagar as contas existentes.

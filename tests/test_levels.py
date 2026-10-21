@@ -1,0 +1,207 @@
+import asyncio
+import sqlite3
+
+import httpx
+import pytest
+
+from app.database import initialize_database
+from app.main import app
+
+
+async def _request(
+    method: str,
+    path: str,
+    *,
+    json: dict[str, object] | None = None,
+    token: str | None = None,
+) -> httpx.Response:
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+        ) as client:
+            return await client.request(method, path, json=json, headers=headers)
+
+
+@pytest.fixture
+def player_token(tmp_path, monkeypatch) -> str:
+    monkeypatch.setenv("CODEADVENTURE_DB_PATH", str(tmp_path / "levels.db"))
+    monkeypatch.setenv("CODEADVENTURE_SECRET_KEY", "test-secret-key-" * 3)
+    response = asyncio.run(
+        _request(
+            "POST",
+            "/api/v1/auth/register",
+            json={"username": "LevelPlayer", "password": "adventure-pass-1"},
+        )
+    )
+    assert response.status_code == 201
+    return response.json()["access_token"]
+
+
+def api_request(
+    method: str,
+    path: str,
+    *,
+    json: dict[str, object] | None = None,
+    token: str | None = None,
+) -> httpx.Response:
+    return asyncio.run(_request(method, path, json=json, token=token))
+
+
+def test_level_one_returns_playable_sequence_without_solution(
+    player_token: str,
+) -> None:
+    response = api_request("GET", "/api/v1/levels/1", token=player_token)
+    result = response.json()
+
+    assert response.status_code == 200
+    assert result["challenge_type"] == "sequence_choice"
+    assert result["challenge"]["pattern"] == ["2", "4", "6", "?"]
+    assert result["challenge"]["choices"] == ["7", "8", "9"]
+    assert "solution" not in result
+
+
+def test_level_two_is_locked_until_previous_level_is_completed(
+    player_token: str,
+) -> None:
+    response = api_request("GET", "/api/v1/levels/2", token=player_token)
+    assert response.status_code == 403
+
+
+def test_level_challenge_requires_authentication() -> None:
+    response = api_request("GET", "/api/v1/levels/1")
+    assert response.status_code == 401
+
+
+def test_correct_sequence_awards_xp_once_and_unlocks_world_two(
+    player_token: str,
+) -> None:
+    wrong = api_request(
+        "POST",
+        "/api/v1/levels/1/submit",
+        json={"answer": "7"},
+        token=player_token,
+    )
+    assert wrong.status_code == 200
+    assert wrong.json()["correct"] is False
+    assert wrong.json()["xp_awarded"] == 0
+
+    correct = api_request(
+        "POST",
+        "/api/v1/levels/1/submit",
+        json={"answer": "8"},
+        token=player_token,
+    )
+    assert correct.status_code == 200
+    assert correct.json()["correct"] is True
+    assert correct.json()["stars"] == 3
+    assert correct.json()["xp_awarded"] == 50
+
+    replay = api_request(
+        "POST",
+        "/api/v1/levels/1/submit",
+        json={"answer": "8"},
+        token=player_token,
+    )
+    assert replay.json()["already_completed"] is True
+    assert replay.json()["xp_awarded"] == 0
+
+    unlocked = api_request("GET", "/api/v1/levels/2", token=player_token)
+    assert unlocked.status_code == 200
+    assert unlocked.json()["challenge_type"] == "path_commands"
+
+    dashboard = api_request(
+        "GET",
+        "/api/v1/users/me/dashboard",
+        token=player_token,
+    )
+    assert dashboard.json()["total_xp"] == 50
+    assert dashboard.json()["worlds"][1]["status"] == "available"
+
+
+def test_algorithm_path_validates_moves_and_awards_stars(
+    player_token: str,
+) -> None:
+    api_request(
+        "POST",
+        "/api/v1/levels/1/submit",
+        json={"answer": "8"},
+        token=player_token,
+    )
+    blocked_path = api_request(
+        "POST",
+        "/api/v1/levels/2/submit",
+        json={"answer": ["right", "up", "right", "right", "up"]},
+        token=player_token,
+    )
+    assert blocked_path.status_code == 200
+    assert blocked_path.json()["correct"] is False
+
+    solution = api_request(
+        "POST",
+        "/api/v1/levels/2/submit",
+        json={"answer": ["right", "right", "right", "up", "up"]},
+        token=player_token,
+    )
+    assert solution.status_code == 200
+    assert solution.json()["correct"] is True
+    assert solution.json()["stars"] == 3
+    assert solution.json()["xp_awarded"] == 50
+
+
+def test_existing_database_is_upgraded_without_losing_world_rows(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    database_path = tmp_path / "older.db"
+    monkeypatch.setenv("CODEADVENTURE_DB_PATH", str(database_path))
+
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+            INSERT INTO schema_version (version) VALUES (1), (2), (3);
+            CREATE TABLE worlds (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                icon TEXT NOT NULL,
+                theme_color TEXT NOT NULL,
+                position INTEGER NOT NULL UNIQUE
+            );
+            CREATE TABLE levels (
+                id INTEGER PRIMARY KEY,
+                world_id INTEGER NOT NULL REFERENCES worlds(id),
+                position INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                objective TEXT NOT NULL,
+                xp_reward INTEGER NOT NULL CHECK (xp_reward >= 0),
+                UNIQUE (world_id, position)
+            );
+            INSERT INTO worlds VALUES
+                (1, 'Pensamento lógico', 'Lógica', '🧩', 'peach', 1);
+            INSERT INTO levels VALUES
+                (1, 1, 1, 'Encontra o padrão', 'Descobre o elemento que falta.', 50);
+            """
+        )
+
+    initialize_database()
+
+    with sqlite3.connect(database_path) as connection:
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(levels)")
+        }
+        version = connection.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0]
+        challenge_type = connection.execute(
+            "SELECT challenge_type FROM levels WHERE id = 1"
+        ).fetchone()[0]
+        world_count = connection.execute("SELECT COUNT(*) FROM worlds").fetchone()[0]
+
+    assert {"challenge_type", "challenge_json", "solution_json"} <= columns
+    assert version == 4
+    assert challenge_type == "sequence_choice"
+    assert world_count == 6
