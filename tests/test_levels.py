@@ -6,6 +6,7 @@ import httpx
 import pytest
 
 from app.database import (
+    LEVEL_CHALLENGES,
     WORLD_ONE_PATTERNS,
     WORLD_TWO_ROUTES,
     _level_id,
@@ -180,13 +181,22 @@ def test_all_fifteen_algorithm_levels_are_solvable_and_unlock_next_world(
         )
 
     assert len(WORLD_TWO_ROUTES) == 14
-    first_world_two = api_request(
+    assert len(set(WORLD_TWO_ROUTES)) == 14
+    first_world_two = api_request("GET", "/api/v1/levels/2", token=player_token)
+    first_challenge = first_world_two.json()["challenge"]
+    first_route = str(LEVEL_CHALLENGES[2]["route"])
+    assert first_world_two.status_code == 200
+    assert first_challenge["difficulty"] == 1
+    assert first_challenge["optimal_commands"] == len(first_route)
+    assert len(first_challenge["walls"]) == 4
+    all_challenges = [(first_challenge, first_route)]
+    first_result = api_request(
         "POST",
         "/api/v1/levels/2/submit",
-        json={"answer": route_commands("RRRUU")},
+        json={"answer": route_commands(first_route)},
         token=player_token,
     )
-    assert first_world_two.json()["correct"] is True
+    assert first_result.json()["correct"] is True
     first_challenge = api_request("GET", "/api/v1/levels/2", token=player_token)
     challenge_configurations = {
         json.dumps(
@@ -194,13 +204,11 @@ def test_all_fifteen_algorithm_levels_are_solvable_and_unlock_next_world(
             sort_keys=True,
         )
     }
-    assert first_challenge.json()["challenge"]["difficulty"] == 1
-    assert first_challenge.json()["challenge"]["optimal_commands"] == 5
-    assert len(set(WORLD_TWO_ROUTES)) == 14
-    expected_dimensions = ((3, 4), (5, 5), (6, 6), (7, 7), (8, 8))
+    expected_dimensions = ((4, 5), (6, 6), (7, 7), (8, 8), (9, 9))
     expected_steps = (5, 8, 10, 12, 14)
-    for position, route in enumerate(WORLD_TWO_ROUTES, start=2):
+    for position in range(2, 16):
         level_id = _level_id(2, position)
+        route = str(LEVEL_CHALLENGES[level_id]["route"])
         response = api_request("GET", f"/api/v1/levels/{level_id}", token=player_token)
         assert response.status_code == 200, f"Position {position}: {response.json()}"
         assert response.json()["challenge_type"] == "path_commands"
@@ -210,8 +218,9 @@ def test_all_fifteen_algorithm_levels_are_solvable_and_unlock_next_world(
         assert challenge["optimal_commands"] == len(route)
         assert challenge["difficulty"] == difficulty
         assert (challenge["rows"], challenge["columns"]) == expected_dimensions[difficulty - 1]
-        assert len(challenge["walls"]) == difficulty + 1
+        assert len(challenge["walls"]) == difficulty + 3
         assert len(route) == expected_steps[difficulty - 1]
+        all_challenges.append((challenge, route))
         challenge_configurations.add(
             json.dumps(challenge, sort_keys=True)
         )
@@ -225,6 +234,16 @@ def test_all_fifteen_algorithm_levels_are_solvable_and_unlock_next_world(
         assert result.json()["correct"] is True, f"Position {position}, route {route}"
 
     assert len(challenge_configurations) == 15
+    assert len({tuple(challenge["start"]) for challenge, _ in all_challenges}) > 1
+    assert len({tuple(challenge["goal"]) for challenge, _ in all_challenges}) > 1
+    for challenge, route in all_challenges:
+        row, column = challenge["start"]
+        for command in route_commands(route):
+            delta = {"up": (-1, 0), "down": (1, 0), "left": (0, -1), "right": (0, 1)}[command]
+            row += delta[0]
+            column += delta[1]
+            assert [row, column] not in challenge["walls"]
+        assert [row, column] == challenge["goal"]
     dashboard = api_request(
         "GET",
         "/api/v1/users/me/dashboard",
@@ -247,7 +266,7 @@ def test_algorithm_path_validates_moves_and_awards_stars(
     blocked_path = api_request(
         "POST",
         "/api/v1/levels/2/submit",
-        json={"answer": ["right", "up", "right", "right", "up"]},
+        json={"answer": ["left"]},
         token=player_token,
     )
     assert blocked_path.status_code == 200
@@ -256,7 +275,7 @@ def test_algorithm_path_validates_moves_and_awards_stars(
     solution = api_request(
         "POST",
         "/api/v1/levels/2/submit",
-        json={"answer": ["right", "right", "right", "up", "up"]},
+        json={"answer": route_commands(str(LEVEL_CHALLENGES[2]["route"]))},
         token=player_token,
     )
     assert solution.status_code == 200

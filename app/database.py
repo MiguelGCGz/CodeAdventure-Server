@@ -88,19 +88,37 @@ def _pattern_challenge(pattern: list[str], answer: int) -> dict[str, object]:
 
 
 def _path_challenge(route: str, position: int) -> dict[str, object]:
+    difficulty = (position - 1) // 3 + 1
+    rows, columns = ((4, 5), (6, 6), (7, 7), (8, 8), (9, 9))[difficulty - 1]
+    vertical_steps = route.count("U")
+    horizontal_steps = route.count("R")
+    row_offset = position % (rows - vertical_steps)
+    column_offset = (position * 2) % (columns - horizontal_steps)
+    start = (row_offset + vertical_steps, column_offset)
+    goal = (row_offset, column_offset + horizontal_steps)
+    flip_vertical = position % 2 == 0
+    flip_horizontal = position % 3 == 0
+    if flip_vertical:
+        start = (rows - 1 - start[0], start[1])
+        goal = (rows - 1 - goal[0], goal[1])
+    if flip_horizontal:
+        start = (start[0], columns - 1 - start[1])
+        goal = (goal[0], columns - 1 - goal[1])
+
+    route_directions = {
+        "U": "D" if flip_vertical else "U",
+        "R": "L" if flip_horizontal else "R",
+    }
+    transformed_route = "".join(route_directions[direction] for direction in route)
     directions = {
         "U": (-1, 0),
         "D": (1, 0),
         "L": (0, -1),
         "R": (0, 1),
     }
-    difficulty = (position - 1) // 3 + 1
-    rows, columns = ((3, 4), (5, 5), (6, 6), (7, 7), (8, 8))[difficulty - 1]
-    start = (rows - 1, 0)
-    goal = (0, columns - 1)
     row, column = start
     visited = {(row, column)}
-    for direction in route:
+    for direction in transformed_route:
         delta_row, delta_column = directions[direction]
         row += delta_row
         column += delta_column
@@ -114,7 +132,7 @@ def _path_challenge(route: str, position: int) -> dict[str, object]:
     ]
     offset = (position * 3) % len(possible_walls)
     possible_walls = possible_walls[offset:] + possible_walls[:offset]
-    walls = possible_walls[: difficulty + 1]
+    walls = possible_walls[: difficulty + 3]
     return {
         "type": "path_commands",
         "challenge": {
@@ -123,12 +141,12 @@ def _path_challenge(route: str, position: int) -> dict[str, object]:
             "start": list(start),
             "goal": list(goal),
             "walls": [list(cell) for cell in walls],
-            "max_commands": len(route) + 3,
+            "max_commands": len(transformed_route) + 3,
             "optimal_commands": len(route),
             "difficulty": difficulty,
         },
         "solution": None,
-        "route": route,
+        "route": transformed_route,
     }
 
 
@@ -136,21 +154,7 @@ LEVEL_CHALLENGES: dict[int, dict[str, object]] = {}
 for position, (pattern, answer) in enumerate(WORLD_ONE_PATTERNS, start=1):
     LEVEL_CHALLENGES[_level_id(1, position)] = _pattern_challenge(pattern, answer)
 
-LEVEL_CHALLENGES[2] = {
-    "type": "path_commands",
-    "challenge": {
-        "rows": 3,
-        "columns": 4,
-        "start": [2, 0],
-        "goal": [0, 3],
-        "walls": [[1, 1], [1, 2]],
-        "max_commands": 8,
-        "optimal_commands": 5,
-        "difficulty": 1,
-    },
-    "solution": None,
-    "route": "RRRUU",
-}
+LEVEL_CHALLENGES[2] = _path_challenge("RRRUU", 1)
 for position, route in enumerate(WORLD_TWO_ROUTES, start=2):
     LEVEL_CHALLENGES[_level_id(2, position)] = _path_challenge(route, position)
 
